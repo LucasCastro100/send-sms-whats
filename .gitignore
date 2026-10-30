@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Segredos
+.env
+
+# Dados gerados em execução (logs, fila de agendamentos)
+runtime/
+
+# O CSV do Zoom é dado do projeto (a regra *.csv do .gitignore raiz o ignoraria)
+!data/aniversariantes_zoom.csv

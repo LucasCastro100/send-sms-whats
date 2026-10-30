@@ -1,0 +1,63 @@
+name: Disparo diário de aniversariantes
+
+on:
+  schedule:
+    # 03:00 UTC = 00:00 em America/Sao_Paulo (Brasil não tem mais horário de verão)
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fonte:
+        description: "Qual lista disparar"
+        type: choice
+        options:
+          - ambos
+          - icm
+          - zoom
+        default: ambos
+      dry_run:
+        description: "Só montar a mensagem (não envia no WhatsApp)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: disparo-aniversariantes
+  cancel-in-progress: false
+
+jobs:
+  disparar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Disparar aniversariantes
+        env:
+          EVOLUTION_BASE_URL: ${{ secrets.EVOLUTION_BASE_URL }}
+          EVOLUTION_INSTANCE: ${{ secrets.EVOLUTION_INSTANCE }}
+          EVOLUTION_APIKEY: ${{ secrets.EVOLUTION_APIKEY }}
+          JID_GRUPO_IGREJA_FIXO: ${{ secrets.JID_GRUPO_IGREJA_FIXO }}
+          NOME_GRUPO_IGREJA_FIXO: ${{ secrets.NOME_GRUPO_IGREJA_FIXO }}
+          JID_GRUPO_ZOOM: ${{ secrets.JID_GRUPO_ZOOM }}
+          NOME_GRUPO_ZOOM: ${{ secrets.NOME_GRUPO_ZOOM }}
+          FONTE: ${{ inputs.fonte || 'ambos' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          ARGS=(--fonte "$FONTE")
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          python -m scripts.disparar_aniversariantes "${ARGS[@]}"
