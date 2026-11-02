@@ -77,8 +77,20 @@ Se algum nome do PDF não estiver em `data/generos.json`, aparece um expander:
 
 > ⚠️ N nome(s) sem gênero cadastrado em generos.json
 
-Abra, veja a lista e cadastre cada nome no JSON com `"M"` ou `"F"`. Enquanto não
-cadastrar, a mensagem trata a pessoa como **irmão** (masculino).
+Abra, veja a lista e cadastre cada nome no JSON com `"M"` ou `"F"`, dentro do
+bloco `"icm"`:
+
+```json
+{
+  "icm": {
+    "NOME DA PESSOA": "F"
+  },
+  "zoom": {}
+}
+```
+
+Enquanto não cadastrar, a mensagem trata a pessoa como **irmão** (masculino).
+Os nomes do Zoom ficam no bloco `"zoom"` do mesmo arquivo.
 
 ### 3.2 Barra lateral — destino fixo
 
@@ -117,6 +129,21 @@ Na barra lateral, em **Filtros do PDF**:
 As métricas mostram **Pessoas Filtradas** e **Grupos Presentes**, e a tabela
 lista `Número`, `Data Nasc.`, `Mês`, `Nome` e `Grupo de Assistência`. A tabela é
 apenas consulta: não envia nada e não altera o PDF.
+
+### 3.6 Quem não deve ser citado
+
+No fim da página, a tabela **🚫 Quem NÃO deve ser citado nas mensagens** tem uma
+coluna **Não citar**. Marque a pessoa e clique em
+**💾 Salvar quem não deve ser citado (ICM)**. O expander
+**Ver conteúdo de `data/exclusoes.json`** mostra exatamente o que está salvo.
+
+- A pessoa some do texto do botão **Disparar** e do disparo automático das 00:00;
+- as marcações ficam em `data/exclusoes.json` (chave `icm`);
+- os filtros de mês/grupo não apagam marcações de quem está fora do filtro;
+- o envio continua indo para o **grupo** — a mudança é só sobre **quem é citado**.
+
+> ⚠️ O GitHub Actions usa o `data/exclusoes.json` que está no repositório. Depois
+> de salvar, faça commit do arquivo para valer no disparo automático.
 
 ---
 

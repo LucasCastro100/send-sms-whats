@@ -35,6 +35,7 @@ Tudo em uma interface web local (Streamlit), falando com o WhatsApp pela
 | `data/data.pdf` | dado | lista oficial do ICM |
 | `data/aniversariantes_zoom.csv` | dado | lista manual do Zoom |
 | `data/generos.json` | dado | quem é irmão (`M`) e quem é irmã (`F`) |
+| `data/exclusoes.json` | dado | quem NÃO deve ser citado nas mensagens |
 | `runtime/*` | gerado | logs e fila de agendamentos |
 | `.env` | configuração | URL/instância/apikey e JIDs dos grupos |
 | Evolution API | externo | entrega as mensagens no WhatsApp |
@@ -151,6 +152,7 @@ e aparece um aviso na página.
 | `data/data.pdf` | lista do ICM | sim |
 | `data/aniversariantes_zoom.csv` | lista do Zoom | sim (regra explícita no `.gitignore`) |
 | `data/generos.json` | gênero por nome | sim |
+| `data/exclusoes.json` | quem não deve ser citado | sim |
 | `.env` | segredos e JIDs | **não** |
 | `runtime/aniversariantes.log` | histórico dos disparos automáticos | não |
 | `runtime/envios_agendados.json` | fila de envios agendados | não |

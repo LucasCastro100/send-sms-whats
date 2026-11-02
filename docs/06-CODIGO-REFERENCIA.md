@@ -26,7 +26,8 @@ check-birthday/
 ├── data/
 │   ├── data.pdf                   # Lista oficial do ICM (não editar à mão)
 │   ├── aniversariantes_zoom.csv   # Lista manual do Zoom
-│   └── generos.json               # Nome -> "M" / "F" (irmão / irmã)
+│   ├── generos.json               # Nome -> "M" / "F" (irmão / irmã)
+│   └── exclusoes.json             # Quem NÃO deve ser citado (icm / zoom)
 ├── runtime/                       # Gerado em execução (fora do git)
 │   ├── aniversariantes.log
 │   ├── envios_agendados.json
@@ -145,6 +146,7 @@ PASTA_RUNTIME     = RAIZ / "runtime"   # criada automaticamente
 ARQUIVO_PDF       = PASTA_DADOS / "data.pdf"
 ARQUIVO_ZOOM      = PASTA_DADOS / "aniversariantes_zoom.csv"
 ARQUIVO_GENEROS   = PASTA_DADOS / "generos.json"
+ARQUIVO_EXCLUSOES = PASTA_DADOS / "exclusoes.json"
 ARQUIVO_LOG       = PASTA_RUNTIME / "aniversariantes.log"
 
 ICONE_ANIVERSARIANTE = "🥳"
@@ -428,16 +430,33 @@ Marilene,10/02
 
 ### 10.2 `data/generos.json`
 
+Separado por fonte (`icm` e `zoom`), para o mesmo nome não vazar de uma lista
+para a outra:
+
 ```json
 {
-  "FULANO DE TAL": "M",
-  "SICRANA DE TAL": "F",
-  "TANIA": "F"
+  "icm": {
+    "FULANO DE TAL": "M",
+    "SICRANA DE TAL": "F"
+  },
+  "zoom": {
+    "TANIA": "F"
+  }
 }
 ```
 
 Chaves podem ser nome completo **ou** primeiro nome. Se a pessoa não estiver
 cadastrada, a mensagem usa "irmão" e a página mostra o aviso de pendências.
+
+No código:
+
+```python
+carregar_generos("icm")   # só ICM
+carregar_generos("zoom")  # só Zoom
+carregar_generos()        # junta as duas fontes
+```
+
+O formato antigo (um único dicionário plano) continua sendo aceito.
 
 ### 10.3 Logs
 

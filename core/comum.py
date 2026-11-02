@@ -36,6 +36,7 @@ NOME_GRUPO_ZOOM = os.getenv("NOME_GRUPO_ZOOM", "Zoom")
 ARQUIVO_PDF = PASTA_DADOS / "data.pdf"
 ARQUIVO_ZOOM = PASTA_DADOS / "aniversariantes_zoom.csv"
 ARQUIVO_GENEROS = PASTA_DADOS / "generos.json"
+ARQUIVO_EXCLUSOES = PASTA_DADOS / "exclusoes.json"
 ARQUIVO_LOG = PASTA_RUNTIME / "aniversariantes.log"
 FUSO = "America/Sao_Paulo"
 
@@ -143,23 +144,55 @@ def _normalizar_nome(nome: str) -> str:
     return re.sub(r"\s+", " ", str(nome)).strip().upper()
 
 
-def carregar_generos() -> dict[str, str]:
-    """Lê o generos.json (nome completo ou primeiro nome -> "M" ou "F")."""
+def _normalizar_generos(dados: dict) -> dict[str, str]:
+    """Normaliza um bloco {nome: "m"/"f"} para chaves maiúsculas."""
+    return {
+        _normalizar_nome(nome): str(valor).strip().upper()[:1]
+        for nome, valor in dados.items()
+        if str(nome).strip() and str(valor).strip()
+    }
+
+
+def carregar_generos(fonte: str | None = None) -> dict[str, str]:
+    """Lê o generos.json, separado por fonte: {"icm": {...}, "zoom": {...}}.
+
+    - `carregar_generos()`        -> junta ICM + Zoom (visão geral)
+    - `carregar_generos("icm")`   -> só os nomes do ICM
+    - `carregar_generos("zoom")`  -> só os nomes do Zoom
+
+    O formato antigo (um único dicionário plano) continua sendo aceito.
+    """
     try:
         with open(ARQUIVO_GENEROS, encoding="utf-8") as f:
             dados = json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
 
-    return {
-        _normalizar_nome(nome): str(valor).strip().upper()[:1]
-        for nome, valor in dados.items()
-    }
+    if not isinstance(dados, dict):
+        return {}
+
+    separado = any(isinstance(valor, dict) for valor in dados.values())
+
+    if not separado:
+        # Formato antigo: {"NOME": "M", ...}
+        return _normalizar_generos(dados)
+
+    if fonte is None:
+        juntos: dict[str, str] = {}
+        for chave in ("icm", "zoom"):
+            juntos.update(_normalizar_generos(dados.get(chave, {})))
+        return juntos
+
+    return _normalizar_generos(dados.get(fonte.lower(), {}))
 
 
-def genero_de(nome: str, generos: dict[str, str] | None = None) -> str | None:
+def genero_de(
+    nome: str,
+    generos: dict[str, str] | None = None,
+    fonte: str | None = None,
+) -> str | None:
     """Retorna "M", "F" ou None (desconhecido) para o nome informado."""
-    generos = carregar_generos() if generos is None else generos
+    generos = carregar_generos(fonte) if generos is None else generos
     chave = _normalizar_nome(nome)
 
     if chave in generos:
@@ -172,9 +205,9 @@ def genero_de(nome: str, generos: dict[str, str] | None = None) -> str | None:
     return None
 
 
-def nomes_sem_genero(df: pd.DataFrame) -> list[str]:
+def nomes_sem_genero(df: pd.DataFrame, fonte: str | None = None) -> list[str]:
     """Lista os nomes do DataFrame que ainda não têm gênero cadastrado."""
-    generos = carregar_generos()
+    generos = carregar_generos(fonte)
     return sorted(
         {
             row["Nome"]
@@ -182,6 +215,89 @@ def nomes_sem_genero(df: pd.DataFrame) -> list[str]:
             if genero_de(row["Nome"], generos) is None
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Exclusões (quem NÃO deve ser citado nas mensagens)
+# ---------------------------------------------------------------------------
+def carregar_exclusoes() -> dict[str, list[str]]:
+    """Lê exclusoes.json no formato {"icm": [...], "zoom": [...]}.
+
+    Os nomes são guardados normalizados (maiúsculas, sem espaços repetidos),
+    igual ao generos.json. O arquivo fica em `data/` para que o GitHub Actions
+    também enxergue a lista.
+    """
+    vazio = {"icm": [], "zoom": []}
+    try:
+        with open(ARQUIVO_EXCLUSOES, encoding="utf-8") as f:
+            dados = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return vazio
+
+    if not isinstance(dados, dict):
+        return vazio
+
+    return {
+        fonte: sorted(
+            {
+                _normalizar_nome(nome)
+                for nome in dados.get(fonte, [])
+                if str(nome).strip()
+            }
+        )
+        for fonte in ("icm", "zoom")
+    }
+
+
+def _gravar_exclusoes(dados: dict[str, list[str]]) -> None:
+    ARQUIVO_EXCLUSOES.parent.mkdir(parents=True, exist_ok=True)
+    with open(ARQUIVO_EXCLUSOES, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def nomes_excluidos(fonte: str) -> set[str]:
+    """Nomes (normalizados) marcados para não receber, na fonte icm/zoom."""
+    return set(carregar_exclusoes().get(fonte.lower(), []))
+
+
+def esta_excluido(nome: str, fonte: str) -> bool:
+    """Diz se a pessoa está marcada para não ser citada na mensagem."""
+    return _normalizar_nome(nome) in nomes_excluidos(fonte)
+
+
+def remover_excluidos(df: pd.DataFrame, fonte: str) -> pd.DataFrame:
+    """Devolve o DataFrame sem as pessoas marcadas para não receber."""
+    if df.empty:
+        return df
+
+    excluidos = nomes_excluidos(fonte)
+    if not excluidos:
+        return df
+
+    return df[~df["Nome"].map(lambda nome: _normalizar_nome(nome) in excluidos)]
+
+
+def atualizar_exclusoes(
+    fonte: str,
+    nomes_visiveis: list[str],
+    nomes_bloqueados: list[str],
+) -> list[str]:
+    """Atualiza só os nomes visíveis na tela, preservando o resto do arquivo.
+
+    Sem isso, salvar com um filtro de mês ativo apagaria as marcações feitas
+    em outros meses.
+    """
+    dados = carregar_exclusoes()
+    fonte = fonte.lower()
+
+    visiveis = {_normalizar_nome(n) for n in nomes_visiveis if str(n).strip()}
+    bloqueados = {_normalizar_nome(n) for n in nomes_bloqueados if str(n).strip()}
+    atuais = set(dados.get(fonte, []))
+
+    dados[fonte] = sorted((atuais - visiveis) | (bloqueados & visiveis))
+    _gravar_exclusoes(dados)
+    return dados[fonte]
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +336,13 @@ def link_whatsapp(texto: str) -> str:
     return f"https://web.whatsapp.com/send?text={urllib.parse.quote(texto)}"
 
 
-def montar_mensagem_aniversariantes(df_aniversariantes: pd.DataFrame, data_str: str) -> str:
+def montar_mensagem_aniversariantes(
+    df_aniversariantes: pd.DataFrame,
+    data_str: str,
+    fonte: str = "icm",
+) -> str:
     """Monta o texto da mensagem de parabéns para os aniversariantes do dia."""
-    generos = carregar_generos()
+    generos = carregar_generos(fonte)
 
     linhas_mensagem = []
     generos_do_dia = []
@@ -271,9 +391,13 @@ def montar_mensagem_aniversariantes(df_aniversariantes: pd.DataFrame, data_str: 
     )
 
 
-def montar_mensagem_zoom(df_aniversariantes: pd.DataFrame, data_str: str) -> str:
+def montar_mensagem_zoom(
+    df_aniversariantes: pd.DataFrame,
+    data_str: str,
+    fonte: str = "zoom",
+) -> str:
     """Mensagem do Zoom: um parabéns nominal por aniversariante do dia."""
-    generos = carregar_generos()
+    generos = carregar_generos(fonte)
 
     linhas_mensagem = []
     for _, row in df_aniversariantes.iterrows():
@@ -333,10 +457,26 @@ def _disparar_do_dia(
         _registrar_log(aviso)
         return True, aviso
 
-    mensagem = montar_mensagem(df_hoje, hoje_str)
+    # Respeita a lista de "não citar" salva em data/exclusoes.json
+    excluidos = [
+        nome for nome in df_hoje["Nome"] if esta_excluido(nome, origem.lower())
+    ]
+    df_hoje = remover_excluidos(df_hoje, origem.lower())
+
+    if df_hoje.empty:
+        aviso = (
+            f"[{origem}] Aniversariantes de {hoje_str} todos marcados para NÃO "
+            f"receber ({', '.join(excluidos)}). Nada a enviar."
+        )
+        _registrar_log(aviso)
+        return True, aviso
+
+    mensagem = montar_mensagem(df_hoje, hoje_str, fonte=origem.lower())
     sucesso, retorno = enviar_via_evolution_api(mensagem, destino_jid)
 
     nomes = ", ".join(df_hoje["Nome"].tolist())
+    if excluidos:
+        nomes += f" | Não citados: {', '.join(excluidos)}"
     _registrar_log(
         f"[{origem}] Aniversariantes de {hoje_str}: {nomes} | "
         f"Envio para {nome_grupo}: {'OK' if sucesso else 'FALHA'} - {retorno}"

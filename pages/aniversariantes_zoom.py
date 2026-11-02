@@ -12,17 +12,27 @@ from core.comum import (  # noqa: E402
     JID_GRUPO_ZOOM,
     MESES_MAP,
     NOME_GRUPO_ZOOM,
+    atualizar_exclusoes,
+    carregar_exclusoes,
     enviar_via_evolution_api,
+    esta_excluido,
     link_whatsapp,
     montar_mensagem_zoom,
+    nomes_excluidos,
     nomes_sem_genero,
     read_and_parse_csv,
+    remover_excluidos,
 )
+
+FONTE = "zoom"
 
 
 def render_pagina() -> None:
     st.set_page_config(page_title="Aniversariantes Zoom", layout="wide")
     st.title("🎉 Aniversariantes Zoom")
+
+    if st.session_state.pop("exclusoes_zoom_salvas", None):
+        st.success("✅ Lista de quem não deve ser citado salva em `data/exclusoes.json`.")
 
     df = read_and_parse_csv(ARQUIVO_ZOOM)
 
@@ -34,7 +44,7 @@ def render_pagina() -> None:
         st.caption("Formato esperado: colunas `Nome` e `Data Nasc.` (dd/mm).")
         return
 
-    faltantes = nomes_sem_genero(df)
+    faltantes = nomes_sem_genero(df, FONTE)
     if faltantes:
         with st.expander(
             f"⚠️ {len(faltantes)} nome(s) sem gênero cadastrado em generos.json",
@@ -63,13 +73,26 @@ def render_pagina() -> None:
     data_str = data_selecionada.strftime("%d/%m")
 
     df_hoje = df[df["Data Nasc."] == data_str]
+    excluidos_hoje = [n for n in df_hoje["Nome"] if esta_excluido(n, FONTE)]
+    df_envio = remover_excluidos(df_hoje, FONTE)
 
     st.subheader(f"Aniversariantes em {data_str}")
 
-    if not df_hoje.empty:
-        st.success(f"Encontrado(s) {len(df_hoje)} aniversariante(s) em {data_str}!")
+    if not df_hoje.empty and df_envio.empty:
+        st.warning(
+            "Todos os aniversariantes desta data estão marcados para **não receber** "
+            f"em `data/exclusoes.json`: {', '.join(excluidos_hoje)}."
+        )
+    elif not df_envio.empty:
+        st.success(f"Encontrado(s) {len(df_envio)} aniversariante(s) em {data_str}!")
 
-        mensagem = montar_mensagem_zoom(df_hoje, data_str)
+        if excluidos_hoje:
+            st.info(
+                "🚫 Não serão citados (marcados para não receber): "
+                + ", ".join(excluidos_hoje)
+            )
+
+        mensagem = montar_mensagem_zoom(df_envio, data_str, fonte=FONTE)
         st.code(mensagem, language="markdown")
 
         col1, col2 = st.columns(2)
@@ -98,7 +121,7 @@ def render_pagina() -> None:
                 f'cursor:pointer; width:100%;">Abrir no WhatsApp Web</button></a>',
                 unsafe_allow_html=True,
             )
-    else:
+    elif df_hoje.empty:
         st.info(f"Nenhum aniversariante encontrado para a data {data_str}.")
 
     st.markdown("---")
@@ -122,6 +145,55 @@ def render_pagina() -> None:
         width="stretch",
         hide_index=True,
     )
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------------
+    # Quem não deve ser citado nas mensagens
+    # ------------------------------------------------------------------
+    st.subheader("🚫 Quem NÃO deve ser citado nas mensagens")
+    st.caption(
+        "Marque na coluna **Não citar** as pessoas que não devem aparecer no texto "
+        "de aniversário e clique em **Salvar**. Vale para o botão **Disparar** "
+        "desta tela e para o envio automático das 00:00 (GitHub Actions). "
+        "As marcações vão para `data/exclusoes.json` → chave `zoom`."
+    )
+
+    tabela_exclusao = df_filtrado[["Nome", "Data Nasc."]].copy()
+    tabela_exclusao.insert(
+        0,
+        "Não citar",
+        tabela_exclusao["Nome"].map(lambda nome: esta_excluido(nome, FONTE)),
+    )
+
+    editado = st.data_editor(
+        tabela_exclusao,
+        hide_index=True,
+        width="stretch",
+        key=f"editor_exclusoes_zoom_{opcao_mes}",
+        disabled=["Nome", "Data Nasc."],
+        column_config={
+            "Não citar": st.column_config.CheckboxColumn(
+                "Não citar",
+                help="Marque para não citar esta pessoa na mensagem.",
+                default=False,
+            )
+        },
+    )
+
+    bloqueados = editado.loc[editado["Não citar"], "Nome"].tolist()
+    st.caption(
+        f"✔️ Marcados para **não citar** neste filtro: {len(bloqueados)} · "
+        f"Total salvo em `exclusoes.json` → `zoom`: {len(nomes_excluidos(FONTE))}"
+    )
+
+    with st.expander("Ver conteúdo de `data/exclusoes.json`"):
+        st.json(carregar_exclusoes())
+
+    if st.button("💾 Salvar quem não deve ser citado (Zoom)", width="stretch"):
+        atualizar_exclusoes(FONTE, df_filtrado["Nome"].tolist(), bloqueados)
+        st.session_state["exclusoes_zoom_salvas"] = True
+        st.rerun()
 
 
 # O Streamlit executa páginas com __name__ == "__main__"

@@ -52,6 +52,29 @@ python -m scripts.disparar_aniversariantes            # ICM + Zoom
 python -m scripts.disparar_aniversariantes --fonte icm
 ```
 
+### Quem não deve ser citado
+
+Nas páginas **Aniversariantes ICM** e **Zoom**, no fim da tela, há a tabela
+**🚫 Quem NÃO deve ser citado nas mensagens**. Marque a pessoa na coluna
+**Não citar** e clique em **Salvar**: ela deixa de aparecer no texto do botão
+**Disparar** e também no disparo automático das 00:00.
+
+As marcações ficam em `data/exclusoes.json` (por fonte: `icm` e `zoom`):
+
+```json
+{
+  "icm": ["NOME DA PESSOA"],
+  "zoom": []
+}
+```
+
+> Como o envio é para o **grupo**, isso controla quem é **citado** na mensagem —
+> o texto continua chegando para todos os participantes.
+
+> ⚠️ O GitHub Actions lê o `data/exclusoes.json` **do repositório**. Para valer
+> no disparo automático, faça commit do arquivo depois de salvar
+> (`git add data/exclusoes.json && git commit -m "Atualiza exclusões"`).
+
 ---
 
 ## 2. Deploy no Streamlit Cloud
@@ -129,6 +152,7 @@ scripts/disparar_aniversariantes.py   disparo via linha de comando / CI
 data/data.pdf               lista do ICM
 data/aniversariantes_zoom.csv
 data/generos.json           gênero por nome (irmão/irmã)
+data/exclusoes.json         quem NÃO deve ser citado (por fonte: icm/zoom)
 runtime/                    logs e fila de agendamentos (não versionado)
 ```
 
