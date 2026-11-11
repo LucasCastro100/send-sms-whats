@@ -36,10 +36,12 @@ campo e aba faz. Para entender a arquitetura por trás, veja
    ```
 
 4. Abra `http://localhost:8501`. A barra lateral esquerda lista as páginas:
-   **Painel**, **Aniversariantes ICM**, **Aniversariantes Zoom** e **Mensagens**.
+   **Painel**, **Aniversariantes ICM**, **Aniversariantes Zoom**, **Mensagens**
+   e **Conectar WhatsApp**.
 
-> ⚠️ Deixe o processo do Streamlit rodando. É ele que mantém o agendador da
-> meia-noite e os envios agendados vivos. Fechar o terminal derruba tudo.
+> ⚠️ Deixe o processo do Streamlit rodando. É ele que mantém os envios avulsos
+> agendados vivos. Fechar o terminal derruba tudo. O disparo diário dos
+> aniversariantes roda no GitHub Actions e não depende do app aberto.
 
 ---
 
@@ -50,8 +52,8 @@ configuração.
 
 | Elemento | O que significa |
 |---|---|
-| Banner verde | o agendador está ativo e os dois jobs diários foram registrados para **00:00** |
-| Texto de aviso | lembrete de que o disparo só ocorre com o app em execução |
+| Banner verde | o agendador de envios avulsos está ativo; o disparo diário às **07:00** é feito pelo GitHub Actions |
+| Texto de aviso | lembrete de que os envios avulsos só ocorrem com o app em execução |
 | `✅ Conectado à instância: ...` | `EVOLUTION_APIKEY` e `EVOLUTION_INSTANCE` estão preenchidos |
 | `❌ Atenção: As credenciais...` | falta alguma das duas variáveis — o envio vai falhar |
 | `ICM: ... — JID` | destino do disparo automático do ICM configurado |
@@ -137,7 +139,7 @@ coluna **Não citar**. Marque a pessoa e clique em
 **💾 Salvar quem não deve ser citado (ICM)**. O expander
 **Ver conteúdo de `data/exclusoes.json`** mostra exatamente o que está salvo.
 
-- A pessoa some do texto do botão **Disparar** e do disparo automático das 00:00;
+- A pessoa some do texto do botão **Disparar** e do disparo automático das 07:00;
 - as marcações ficam em `data/exclusoes.json` (chave `icm`);
 - os filtros de mês/grupo não apagam marcações de quem está fora do filtro;
 - o envio continua indo para o **grupo** — a mudança é só sobre **quem é citado**.
@@ -295,7 +297,69 @@ Tabela com `Destino`, `Quando`, `Status` e `Resultado`. Status possíveis:
 
 ---
 
-## 6. Fluxo recomendado no dia a dia
+## 6. Presença — 📋
+
+A página usa a lista de pessoas do `data.pdf` (ICM) e tem três abas.
+
+### 6.1 Aba 📋 Marcar faltas
+
+1. escolha o **dia do culto** (padrão: hoje);
+2. filtre por **Grupo de Assistência** ou busque pelo nome, se quiser;
+3. marque o checkbox de quem **faltou**;
+4. clique em **💾 Salvar faltas do dia**;
+5. no resumo abaixo você vê os faltantes, quem já tem número e pode:
+   - **📨 Enviar "sentimos sua falta"** para os faltantes com número;
+   - **🚪 Enviar mensagem de visita** para quem completou **7 faltas seguidas**
+     (cada sequência avisa uma vez só).
+
+> Salvar um dia sem ninguém marcado também é importante: é assim que o sistema
+> entende que a presença foi conferida e que a sequência de faltas de alguém
+> foi quebrada.
+
+### 6.2 Aba 📱 Números
+
+1. clique em **🔄 Recarregar** se a lista de contatos estiver vazia;
+2. use **🔗 Vincular automaticamente pelo nome** para casar nome completo;
+3. para o restante, escolha a **Pessoa**, escolha o **Contato do WhatsApp**
+   (ou digite o número com DDI + DDD) e clique em **Salvar vínculo**;
+4. a tabela mostra quem já está vinculado.
+
+### 6.3 Aba ✉️ Mensagens
+
+- Edite os textos de **falta** e de **visita**;
+- use `{nome}`, `{data}` e `{faltas}` para o sistema preencher sozinho;
+- clique em **💾 Salvar mensagens** (fica em `data/mensagens_presenca.json`).
+
+---
+
+## 7. Importar planilhas — 📤
+
+Serve para juntar várias fontes (nomes sem número, tabela só de números,
+imagens) num **JSON único**.
+
+1. envie 2 ou mais arquivos: **CSV, TSV, XLSX, XLS, ODS ou PDF**;
+2. para cada arquivo:
+   - escolha a **aba/tabela**;
+   - se a tabela vier sem cabeçalho, marque **"A primeira linha é dado"**;
+   - use **✏️ Renomear colunas** para dar nome às colunas (ex.: `Telefone`);
+3. escolha **como juntar**:
+   - **Por coluna (nome)** → cada tabela tem o nome da pessoa;
+   - **Por posição (ordem das linhas)** → uma das tabelas é só números; a
+     ligação é linha 1 com linha 1, linha 2 com linha 2;
+4. clique em **🔗 Juntar tabelas** e confira a prévia;
+5. escolha as **colunas que vão para o JSON**;
+6. em **🔧 Ajustes antes de salvar**, marque as colunas de telefone (viram
+   `55DDDNÚMERO`) e, se quiser, ajuste os caminhos de imagem para
+   `data/fotos/`;
+7. clique em **💾 Salvar JSON em data/** ou **⬇️ Baixar JSON**.
+
+> Imagens embutidas no PDF são extraídas para `data/fotos/` com página e
+> posição. Se a célula do PDF traz o **caminho** da imagem, ele vem junto na
+> tabela.
+
+---
+
+## 8. Fluxo recomendado no dia a dia
 
 ### Enviar um comunicado agora
 
@@ -314,7 +378,7 @@ Tabela com `Destino`, `Quando`, `Status` e `Resultado`. Status possíveis:
 5. clique em **⏰ Agendar envio**;
 6. confirme na tabela de pendentes.
 
-### Conferir o que vai sair à meia-noite
+### Conferir o que vai sair às 07:00
 
 1. abra **🎉 Aniversariantes ICM** e **🎉 Aniversariantes Zoom**;
 2. selecione **hoje** (ou a data desejada) no campo de data;
@@ -344,11 +408,11 @@ Tabela com `Destino`, `Quando`, `Status` e `Resultado`. Status possíveis:
 
 ---
 
-## 7. Onde olhar quando algo dá errado
+## 9. Onde olhar quando algo dá errado
 
 | Sintoma | O que verificar |
 |---|---|
-| Nada foi enviado à meia-noite | o app estava rodando? veja `runtime/aniversariantes.log` |
+| Nada foi enviado às 07:00 | veja o log da execução em **Actions** no GitHub e `runtime/aniversariantes.log` |
 | “JID não configurado” no painel | preencha `JID_GRUPO_IGREJA_FIXO` e/ou `JID_GRUPO_ZOOM` |
 | “Credenciais não identificadas” | `EVOLUTION_APIKEY` e `EVOLUTION_INSTANCE` no `.env`/Secrets |
 | Erro 401/403 ao enviar | apikey errada ou instância desconectada no WhatsApp |

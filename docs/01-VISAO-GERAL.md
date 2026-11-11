@@ -15,7 +15,7 @@ Automatizar o envio de mensagens de WhatsApp do ICM e do grupo Zoom:
 2. **Aniversariantes do Zoom** — lista manual em `data/aniversariantes_zoom.csv`;
 3. **Mensagens avulsas** — para grupos, contatos ou número digitado;
 4. **Envios agendados** — mensagem única para uma data/hora escolhida;
-5. **Disparo diário automático à meia-noite** para os dois grupos de aniversariantes.
+5. **Disparo diário automático às 07:00** para os dois grupos de aniversariantes.
 
 Tudo em uma interface web local (Streamlit), falando com o WhatsApp pela
 **Evolution API**.
@@ -28,10 +28,13 @@ Tudo em uma interface web local (Streamlit), falando com o WhatsApp pela
 |---|---|---|
 | `main.py` | código | página inicial + registra os jobs diários no agendador |
 | `core/comum.py` | código | ler PDF/CSV, gênero, montar mensagens, enviar pela API |
+| `core/evolution.py` | código | instâncias, QR Code, grupos e contatos (Evolution API) |
+| `core/auth.py` | código | login do painel e instância do WhatsApp por usuário |
 | `core/agendamentos.py` | código | scheduler único + fila de envios com data/hora |
 | `pages/aniversariantes_icm.py` | interface | consulta/disparo manual do ICM |
 | `pages/aniversariantes_zoom.py` | interface | consulta/disparo manual do Zoom |
 | `pages/mensagens.py` | interface | grupos, conversas, número digitado e agendamento |
+| `pages/conexao_whatsapp.py` | interface | conexão do WhatsApp do usuário via QR Code |
 | `data/data.pdf` | dado | lista oficial do ICM |
 | `data/aniversariantes_zoom.csv` | dado | lista manual do Zoom |
 | `data/generos.json` | dado | quem é irmão (`M`) e quem é irmã (`F`) |
@@ -65,7 +68,7 @@ Tudo em uma interface web local (Streamlit), falando com o WhatsApp pela
               └────────┬─────────┘        └────────┬─────────┘
                        │                          │
               ┌────────▼─────────┐        ┌────────▼─────────┐
-              │  Evolution API   │◄───────┤  jobs 00:00 e    │
+              │  Evolution API   │◄───────┤  jobs 07:00 e    │
               │  sendText        │        │  envios avulsos  │
               └────────┬─────────┘        └──────────────────┘
                        │
@@ -117,11 +120,30 @@ texto + destino + data/hora
 ### 4.5 Disparo diário automático
 
 ```
-Streamlit inicia → obter_agendador() (singleton)
-   ├── re-registra agendamentos pendentes salvos no JSON
-   ├── job cron 00:00 → disparar_aniversariantes_icm()
-   └── job cron 00:00 → disparar_aniversariantes_zoom()
+GitHub Actions (07:00 de Brasília)
+   └── scripts/disparar_aniversariantes.py
+        ├── ICM  → filtra hoje → monta mensagem → sendText
+        └── Zoom → filtra hoje → monta mensagem → sendText
 ```
+
+### 4.6 Conexão do WhatsApp por usuário
+
+```
+APP_USERS (usuário/senha)
+   └── instância do usuário (EVOLUTION_INSTANCE_PREFIX + usuário, ex.: cb-maria)
+        └── pages/conexao_whatsapp.py
+             ├── /instance/create  (precisa de EVOLUTION_GLOBAL_APIKEY)
+             ├── /instance/connect → QR Code
+             └── após escanear: /group/fetchAllGroups + /chat/findContacts
+```
+
+- **Grupos e contatos** vêm sempre da instância conectada.
+- O **disparo automático das 07:00** continua usando a instância fixa
+  `EVOLUTION_INSTANCE` (GitHub Actions); a conexão por usuário vale para os
+  envios manuais do painel.
+- Sem `APP_USERS`, o painel funciona como antes: sem login e na instância padrão.
+- Com `"admin": true` no cadastro, o usuário vê a página **👥 Usuários** com o
+  status do WhatsApp de todos (só leitura); para os demais ela fica oculta.
 
 ---
 
@@ -172,8 +194,10 @@ e aparece um aviso na página.
 
 ## 8. Limites conhecidos
 
-1. Os disparos automáticos dependem do processo do Streamlit vivo.
-2. Streamlit Cloud hiberna por inatividade → pode perder a meia-noite.
+1. Os **envios avulsos agendados** dependem do processo do Streamlit vivo. O
+   disparo diário roda no GitHub Actions.
+2. No **Streamlit Cloud**, o app hiberna por inatividade → um envio avulso
+   agendado pode ser perdido.
 3. Duas instâncias do app geram envios duplicados.
 4. Agendamentos perdidos (app parado no horário) ficam marcados como `perdido`
    e **não** são reenviados automaticamente.

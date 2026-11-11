@@ -1,0 +1,40 @@
+name: check-birthday
+
+services:
+  api:
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite:////data/app.db
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    volumes:
+      - cb-data:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/api/health")
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_INTERNAL_URL: http://api:8000
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  cb-data:

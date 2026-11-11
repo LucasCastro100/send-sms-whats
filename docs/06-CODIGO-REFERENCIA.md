@@ -6,7 +6,7 @@ Sistema Streamlit para disparar mensagens no WhatsApp via **Evolution API**, com
 - **Aniversariantes do Zoom** (lista manual em CSV, ordenada por mês/dia)
 - **Mensagens avulsas** para grupos, contatos individuais ou número digitado
 - **Agendamento de envio único** para uma data/hora escolhida
-- **Disparos automáticos diários à meia-noite** (ICM e Zoom)
+- **Disparos automáticos diários às 07:00** (ICM e Zoom)
 
 ---
 
@@ -18,11 +18,14 @@ check-birthday/
 ├── core/
 │   ├── __init__.py
 │   ├── comum.py                   # Regras compartilhadas (dados, gênero, envio, mensagens)
+│   ├── evolution.py               # Instâncias, QR Code, grupos e contatos (Evolution API)
+│   ├── auth.py                    # Login do painel + instância por usuário
 │   └── agendamentos.py            # Envios agendados (data/hora) + scheduler único
 ├── pages/
 │   ├── aniversariantes_icm.py     # Subpágina: aniversariantes do ICM
 │   ├── aniversariantes_zoom.py    # Subpágina: aniversariantes do Zoom
-│   └── mensagens.py               # Subpágina: grupos, conversas e agendamento
+│   ├── mensagens.py               # Subpágina: grupos, conversas e agendamento
+│   └── conexao_whatsapp.py        # Subpágina: conectar o WhatsApp via QR Code
 ├── data/
 │   ├── data.pdf                   # Lista oficial do ICM (não editar à mão)
 │   ├── aniversariantes_zoom.csv   # Lista manual do Zoom
@@ -48,7 +51,10 @@ check-birthday/
 |---|---|
 | `EVOLUTION_BASE_URL` | URL da Evolution API (ex.: `https://evolution.ideiasdev.tech`) |
 | `EVOLUTION_INSTANCE` | Nome da instância conectada ao WhatsApp (ex.: `igreja-bot`) |
-| `EVOLUTION_APIKEY` | Chave de API da instância |
+| `EVOLUTION_APIKEY` | Token da instância (funciona só para ela) |
+| `EVOLUTION_GLOBAL_APIKEY` | Chave mestre do servidor (`AUTHENTICATION_API_KEY`); necessária para criar instâncias por usuário |
+| `EVOLUTION_INSTANCE_PREFIX` | Prefixo das instâncias criadas por usuário (padrão `cb-`) |
+| `APP_USERS` | Login do painel em JSON (`{"usuario": "senha"}` ou com `nome`/`instancia`) |
 | `JID_GRUPO_IGREJA_FIXO` | JID do grupo que recebe os aniversariantes do ICM |
 | `NOME_GRUPO_IGREJA_FIXO` | Nome amigável do grupo do ICM (só exibição) |
 | `JID_GRUPO_ZOOM` | JID do grupo que recebe os aniversariantes do Zoom |
@@ -75,7 +81,7 @@ lateral automaticamente (o Streamlit lê a pasta `pages/`).
 
 ---
 
-## 4. `main.py` — página inicial e agendador diário
+## 4. `main.py` — página inicial e agendador de envios avulsos
 
 ### 4.1 Carga do ambiente
 
@@ -93,35 +99,20 @@ ou de outra pasta) e carrega as variáveis com `override=True`.
 Esse trecho fica **antes** dos imports de `comum`/`agendamentos`, porque esses
 módulos leem as variáveis no momento em que são importados.
 
-### 4.2 Registro dos jobs diários
+### 4.2 Agendador do app
 
 ```python
 def inicializar_agendador_cron():
-    scheduler = obter_agendador()          # scheduler único do app (cache_resource)
-
-    scheduler.add_job(
-        disparar_aniversariantes_icm,
-        trigger="cron", hour=0, minute=0,
-        id="job_aniversariantes_icm",
-        replace_existing=True,
-        coalesce=True,
-        misfire_grace_time=3600,
-    )
-    # ... job_aniversariantes_zoom igual, chamando disparar_aniversariantes_zoom
-    return scheduler
+    return obter_agendador()
 ```
 
 - `obter_agendador()` vem de `core/agendamentos.py` e é decorado com
   `@st.cache_resource` → existe **um único** `BackgroundScheduler` por processo,
   mesmo com os reruns do Streamlit.
-- `trigger="cron", hour=0, minute=0` → todo dia à **00:00**.
-- `replace_existing=True` → reexecutar `main.py` não cria jobs duplicados.
-- `coalesce=True` → se o app ficou travado e acumulou horários, roda só uma vez.
-- `misfire_grace_time=3600` → tolera até 1h de atraso (ex.: thread ocupada ou
-  máquina que hibernou e voltou antes de 01:00).
-
-O scheduler é criado com `timezone="America/Sao_Paulo"`, então "meia-noite" é
-sempre o horário de Brasília, independente do fuso do servidor.
+- Esse scheduler cuida **apenas dos envios avulsos** (`DateTrigger`).
+- O disparo diário dos aniversariantes **não** fica aqui: roda no GitHub Actions
+  às **07:00** de Brasília (`.github/workflows/disparo-diario.yml`, cron
+  `0 10 * * *` em UTC).
 
 ### 4.3 Interface
 
@@ -203,8 +194,8 @@ adicionar `"NOME": "M"` ou `"NOME": "F"`.
 ### 5.5 Envio — `enviar_via_evolution_api()`
 
 ```python
-POST {EVOLUTION_BASE_URL}/message/sendText/{EVOLUTION_INSTANCE}
-Headers: { "apikey": EVOLUTION_APIKEY, "Content-Type": "application/json" }
+POST {EVOLUTION_BASE_URL}/message/sendText/{instancia}
+Headers: { "apikey": chave_api(instancia), "Content-Type": "application/json" }
 Body: {
   "number": destino,
   "text": texto,
@@ -213,6 +204,8 @@ Body: {
 }
 ```
 
+- `instancia` é opcional; sem ela, usa `instancia_ativa()` (a do usuário logado)
+  ou a padrão `EVOLUTION_INSTANCE`.
 - Se o JID termina em `@g.us` (grupo), envia o JID inteiro;
 - Caso contrário, remove tudo que não é dígito e envia só o número;
 - `200`/`201` → sucesso; qualquer outro status ou exceção → falha com mensagem.
@@ -266,7 +259,11 @@ núcleo:
 2. verifica se a lista tem dados;
 3. filtra `Data Nasc. == hoje (dd/mm)`;
 4. se não houver ninguém, grava no log e encerra sem enviar;
-5. monta a mensagem, envia e grava o resultado em `runtime/aniversariantes.log`.
+5. monta a mensagem, envia **pela instância fixa `EVOLUTION_INSTANCE`** e grava o
+   resultado em `runtime/aniversariantes.log`.
+
+> O automático não usa a instância do usuário logado: ele roda no GitHub Actions,
+> sem sessão do painel, e precisa de uma instância fixa.
 
 As funções chamadas pelo agendador são apenas atalhos:
 
@@ -323,6 +320,33 @@ Status possíveis: `pendente`, `enviado`, `erro`, `cancelado`, `perdido`.
   como `perdido` na próxima subida.
 - Cancelar depois que o envio já ocorreu não desfaz a mensagem no WhatsApp.
 
+### 6.5 `core/evolution.py` — instâncias e QR Code
+
+| Função | O que faz |
+|---|---|
+| `chave_api(instancia)` | usa a chave global, ou o token da instância padrão |
+| `estado(instancia)` | `open` / `connecting` / `close` / `nao_existe` / `sem_chave` / `erro` |
+| `criar_instancia(instancia)` | `POST /instance/create` (exige `EVOLUTION_GLOBAL_APIKEY`) |
+| `conectar(instancia)` | `GET /instance/connect/{instancia}` → QR base64/código |
+| `desconectar(instancia)` | `DELETE /instance/logout/{instancia}` |
+| `deletar(instancia)` | `DELETE /instance/delete/{instancia}` (exige chave global) |
+| `listar_instancias()` / `info_instancia()` | `GET /instance/fetchInstances` |
+| `buscar_grupos()` / `buscar_contatos()` | grupos e contatos da instância |
+| `extrair_qr()` / `qr_bytes()` | separa e decodifica o base64 do QR |
+
+### 6.6 `core/auth.py` — login e instância por usuário
+
+- Lê `APP_USERS` (JSON) e normaliza
+  `{usuario: {senha, nome, instancia, admin}}`.
+- `instancia_do_usuario()` usa `instancia` do cadastro ou
+  `EVOLUTION_INSTANCE_PREFIX + slug(usuario)`.
+- `eh_admin()` libera a página `pages/usuarios.py`; para os demais, o item do
+  menu é escondido e a página mostra "acesso restrito".
+- `exigir_login()` renderiza o formulário, guarda `st.session_state["usuario"]` e
+  `st.session_state["instancia_whatsapp"]` e chama `st.stop()` quando não há
+  login. Sem `APP_USERS`, mantém o modo antigo (sem login, instância padrão).
+- `instancia_atual()` é usada por todas as páginas para saber qual WhatsApp usar.
+
 ---
 
 ## 7. `pages/aniversariantes_icm.py`
@@ -363,11 +387,13 @@ Tem uma mensagem compartilhada no topo (passo 1) e **três abas** (passo 2).
 ### 9.1 Fonte dos dados
 
 ```python
-buscar_grupos_whatsapp()   # GET /group/fetchAllGroups/{instance}?getParticipants=false
-buscar_contatos_whatsapp() # POST /chat/findContacts/{instance}  body: {"where": {}}
+buscar_grupos_whatsapp(instancia)   # GET /group/fetchAllGroups/{instancia}?getParticipants=false
+buscar_contatos_whatsapp(instancia) # POST /chat/findContacts/{instancia}  body: {"where": {}}
 ```
 
-Ambas usam `@st.cache_data(ttl=600)` (10 minutos). O botão
+As funções ficam em `core/evolution.py` e são embrulhadas com
+`@st.cache_data(ttl=600)` (10 minutos) na página. A instância vem do usuário
+logado (`instancia_atual()`), então o cache é separado por instância. O botão
 **🔄 Recarregar Grupos e Contatos** na barra lateral limpa o cache.
 
 Dos contatos retornados, só entram os que terminam em `@s.whatsapp.net` (números
@@ -409,6 +435,75 @@ payload leva apenas os dígitos.
 - lista os agendamentos **pendentes** em tabela, com selectbox + botão
   **🗑️ Cancelar agendamento**;
 - expander com o **histórico** (destino, quando, status, resultado).
+
+### 9.5 `pages/conexao_whatsapp.py`
+
+1. `exigir_login()` → usuário logado e instância atual;
+2. consulta `evolution.estado(instancia)` e mostra o status:
+   - `open` → perfil/número conectados + botão **Desconectar** (com confirmação);
+   - `nao_existe` → botão **Criar instância e gerar QR Code** (exige chave global);
+   - `close`/`connecting` → botão **Gerar QR Code**;
+   - `sem_chave`/`erro` → aviso de configuração;
+3. o QR vem de `GET /instance/connect/{instancia}` e é exibido com `st.image`;
+4. um `st.fragment(run_every=3)` acompanha o estado e, quando fica `open`, limpa o
+   QR e recarrega a página.
+
+### 9.6 `core/presenca.py` — faltas, números e mensagens
+
+- `data/presencas.json` → `{"datas": {"AAAA-MM-DD": [nomes]}, "visitas": {nome: {data, faltas}}}`.
+- `salvar_faltas(dia, nomes)` grava o dia **mesmo vazio** — é o que quebra a
+  sequência de faltas de quem compareceu.
+- `faltas_consecutivas(nome, dia)` percorre os dias registrados de trás para
+  frente e conta até a primeira presença.
+- `precisa_visita(nome, dia)` → `(bool, sequencia)`: `True` ao atingir
+  `LIMITE_VISITA` (7) e ainda não avisado nesta sequência; `registrar_visita`
+  guarda o aviso para não repetir.
+- `data/contatos_membros.json` → nome normalizado → JID/número.
+- `data/mensagens_presenca.json` → `{"falta": "...", "visita": "..."}` com
+  `{nome}`, `{data}` e `{faltas}`.
+
+### 9.7 `pages/presenca.py` — página 📋 Presença
+
+1. lê `data.pdf` com `read_and_parse_pdf` (137 pessoas, com Grupo de Assistência);
+2. **📋 Marcar faltas**: `date_input` + filtros + checkboxes; salva com
+   `salvar_faltas`; mostra faltantes, envia "sentimos sua falta" e a mensagem de
+   visita para quem passou de 7 faltas seguidas;
+3. **📱 Números**: contatos da instância (`buscar_contatos`, cache de 10 min),
+   vínculo automático pelo nome e formulário manual;
+4. **✉️ Mensagens**: edita os dois textos e mostra prévia.
+
+### 9.8 `core/importacao.py` — planilhas, PDF e junção
+
+- `ler_planilha(nome, bytes, cabecalho=None)` → `{aba: DataFrame}` para
+  csv/tsv/txt/xlsx/xls/ods. `cabecalho=None` detecta: primeira linha só com
+  texto = cabeçalho; com número/telefone = dado.
+- CSV é lido com separadores explícitos `,` `;` `\t` (sem detector automático,
+  que quebra telefone no espaço).
+- `ler_pdf(nome, bytes, cabecalho=None)` → uma tabela por página/tabela do
+  `pdfplumber`. Célula com caminho de imagem vem como texto.
+- `extrair_imagens_pdf(nome, bytes)` → salva em `data/fotos/` e devolve
+  `{arquivo, pagina, x, y}`.
+- `juntar(itens, modo)`:
+  - `modo="coluna"` → chave normalizada, junção externa (`merge how="outer"`),
+    chave repetida fica a primeira;
+  - `modo="posicao"` → `concat(axis=1)`, linha 1 com linha 1;
+  - colunas com nome repetido ganham sufixo `(arquivo)`.
+- `normalizar_telefone` → só dígitos + DDI 55 quando tem 10/11 dígitos.
+- `ajustar_caminho_imagem` → troca caminho absoluto por `data/fotos/<arquivo>`
+  quando a foto existe lá.
+- `salvar_json(df, colunas, nome, chave_raiz)` → `data/<slug>.json` no formato
+  `{"<chave_raiz>": [ {...} ]}`.
+
+### 9.9 `pages/importar.py` — página 📤 Importar planilhas
+
+1. `file_uploader` múltiplo (csv/tsv/txt/xlsx/xls/ods/pdf);
+2. por arquivo: cabeçalho (auto/cabeçalho/dado), aba, renomear colunas,
+   prévia e, no modo por coluna, a coluna-chave;
+3. detecta colunas de telefone e de caminho de imagem;
+4. **🔗 Juntar tabelas** chama `importacao.juntar` e guarda o resultado em
+   `st.session_state`;
+5. escolhe as colunas do JSON, normaliza telefones, ajusta fotos e salva com
+   `importacao.salvar_json` (+ download).
 
 ---
 
@@ -475,12 +570,11 @@ Streamlit inicia main.py
    └── carrega .env
    └── obter_agendador()  (scheduler único, cache_resource)
         └── re-registra agendamentos pendentes do JSON
-   └── add_job(ICM,  cron 00:00)
-   └── add_job(Zoom, cron 00:00)
 
-00:00 (Brasília)
-   ├── ICM  → parse_pdf  → filtra hoje → monta msg → sendText → log
-   └── Zoom → parse_csv  → filtra hoje → monta msg → sendText → log
+GitHub Actions (07:00 de Brasília)
+   └── scripts/disparar_aniversariantes.py
+        ├── ICM  → parse_pdf  → filtra hoje → monta msg → sendText → log
+        └── Zoom → parse_csv  → filtra hoje → monta msg → sendText → log
 
 Usuário na página Mensagens
    └── envia agora (grupos/contatos/número)
@@ -492,10 +586,10 @@ Usuário na página Mensagens
 
 ## 12. Limitações e cuidados
 
-1. **O app precisa estar rodando** para qualquer disparo automático. Aba do
+1. **O app precisa estar rodando** para os envios avulsos agendados. Aba do
    navegador pode ficar fechada; o processo (`streamlit run`) não pode.
-2. No **Streamlit Cloud**, o app hiberna por inatividade e a meia-noite pode ser
-   perdida. Para garantia real: VPS, `launchd`/`cron` no Mac ou GitHub Actions.
+2. No **Streamlit Cloud**, o app hiberna por inatividade e um envio avulso pode
+   ser perdido. O disparo diário não depende disso: roda no GitHub Actions.
 3. Reiniciar o app **não perde** agendamentos futuros (são recarregados do JSON),
    mas o horário precisa continuar no futuro.
 4. Duas instâncias do app rodando ao mesmo tempo = mensagens automáticas
@@ -503,6 +597,12 @@ Usuário na página Mensagens
 5. O filtro de data usa `datetime.now()` do servidor; o agendador usa o fuso de
    Brasília. Em servidores com fuso muito atrasado, o dia pode divergir.
 6. Credenciais ficam no `.env` — não versione esse arquivo.
+7. **Criar instância por usuário exige a chave global** (`EVOLUTION_GLOBAL_APIKEY`).
+   Com só o token da instância, o painel apenas reconecta `EVOLUTION_INSTANCE`.
+8. O **disparo automático das 07:00** continua usando a instância fixa
+   `EVOLUTION_INSTANCE`; a conexão por usuário vale para os envios manuais.
+9. Para enviar a um grupo, a conta conectada precisa **participar** do grupo. O
+   JID é o mesmo, mas a conta sem acesso recebe erro da Evolution API.
 
 ---
 
@@ -510,9 +610,12 @@ Usuário na página Mensagens
 
 | Sintoma | Onde olhar |
 |---|---|
-| Nada foi enviado à meia-noite | app estava rodando? veja `runtime/aniversariantes.log` |
+| Nada foi enviado às 07:00 | veja o log da execução em **Actions** e `runtime/aniversariantes.log` |
 | "JID não configurado" | preencha `JID_GRUPO_IGREJA_FIXO` / `JID_GRUPO_ZOOM` |
 | Erro 401/403 na Evolution API | `EVOLUTION_APIKEY` e `EVOLUTION_INSTANCE` |
+| Erro 401 ao criar instância | falta `EVOLUTION_GLOBAL_APIKEY` (chave mestre) |
+| QR Code não aparece | clique em **Gerar QR Code** de novo; confira a instância |
+| Grupos/contatos de outra conta | a instância ativa é a do usuário logado |
 | Mensagem no gênero errado | ajuste o nome em `data/generos.json` |
 | Pessoa não aparece | confira a data no PDF/CSV (`dd/mm`) |
 | Agendamento não disparou | status no histórico da aba ⏰; app estava rodando? |
@@ -522,7 +625,7 @@ Usuário na página Mensagens
 
 ## 14. Ideias de evolução
 
-- Botão "Executar agora" para testar cada job sem esperar a meia-noite;
+- Botão "Executar agora" para testar cada job sem esperar as 07:00;
 - Editar datas/gêneros direto na interface (em vez de CSV/JSON);
 - Enviar imagem/áudio além de texto;
 - Reagendar um agendamento existente;

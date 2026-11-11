@@ -2,14 +2,15 @@
 
 Este documento explica os **dois tipos de agendamento** do sistema:
 
-1. **Job diário (cron)** — todo dia às **00:00** envia os aniversariantes do ICM
-   e do Zoom;
+1. **Disparo diário (GitHub Actions)** — todo dia às **07:00** (Brasília) envia
+   os aniversariantes do ICM e do Zoom;
 2. **Envio avulso agendado** — uma mensagem única para uma data/hora escolhida
    na tela **💬 Mensagens → ⏰ Agendar**.
 
-Os dois usam o **mesmo** `BackgroundScheduler` do
-[APScheduler](https://apscheduler.readthedocs.io/), criado uma única vez por
-processo.
+O envio avulso usa o `BackgroundScheduler` do
+[APScheduler](https://apscheduler.readthedocs.io/) dentro do Streamlit. O
+disparo diário roda fora do app, no GitHub Actions
+(`.github/workflows/disparo-diario.yml`).
 
 ---
 
@@ -45,96 +46,45 @@ gerando duplicatas. Com `@st.cache_resource`, o objeto é criado **uma vez por
 processo** e reaproveitado por todas as sessões e reruns.
 
 `main.py` e `pages/mensagens.py` chamam a mesma função `obter_agendador()`, então
-todos os jobs convivem em um único agendador:
+todos os envios avulsos convivem em um único agendador:
 
 ```
 obter_agendador()  (singleton)
-├── job_aniversariantes_icm     cron 00:00
-├── job_aniversariantes_zoom    cron 00:00
 └── envio_<id>                  date (cada agendamento)
 ```
 
 ---
 
-## 2. Job diário dos aniversariantes
+## 2. Job diário dos aniversariantes (GitHub Actions)
 
-Registrado em `main.py`:
+O disparo diário **não** fica no agendador do Streamlit. Quem executa é o
+workflow `.github/workflows/disparo-diario.yml`, no horário do `cron`:
 
-```python
-scheduler = obter_agendador()
-
-scheduler.add_job(
-    disparar_aniversariantes_icm,
-    trigger="cron",
-    hour=0,
-    minute=0,
-    id="job_aniversariantes_icm",
-    replace_existing=True,
-    coalesce=True,
-    misfire_grace_time=3600,
-)
-
-scheduler.add_job(
-    disparar_aniversariantes_zoom,
-    trigger="cron",
-    hour=0,
-    minute=0,
-    id="job_aniversariantes_zoom",
-    replace_existing=True,
-    coalesce=True,
-    misfire_grace_time=3600,
-)
+```yaml
+on:
+  schedule:
+    - cron: "0 10 * * *"   # 10:00 UTC = 07:00 em America/Sao_Paulo
 ```
 
-### 2.1 `trigger="cron"`
-
-Equivale a uma linha de crontab: `hour=0, minute=0` = meia-noite **todos os
-dias**. O fuso do scheduler é `America/Sao_Paulo`, então a meia-noite é sempre a
-de Brasília — mesmo que o servidor esteja em UTC ou em outro fuso.
-
-Variações úteis (não usadas hoje):
-
-```python
-trigger="cron", hour=9, minute=30                  # todo dia 09:30
-trigger="cron", day_of_week="mon-fri", hour=8      # dias úteis às 08:00
-trigger="cron", day=1, hour=0                      # todo dia 1º à meia-noite
-trigger="interval", hours=6                        # a cada 6 horas
-```
-
-### 2.2 `replace_existing=True`
-
-Se `main.py` for reexecutado (o que acontece a cada interação), o job com o mesmo
-`id` é **substituído** em vez de duplicado. Sem isso, em poucos cliques haveria
-dezenas de jobs iguais.
-
-### 2.3 `coalesce=True`
-
-Se o processo ficou ocupado e “perdeu” vários horários, o APScheduler executa
-**uma única vez** em vez de rodar uma vez para cada horário perdido. Evita uma
-rajada de mensagens repetidas.
-
-### 2.4 `misfire_grace_time=3600`
-
-Tolerância de **1 hora** para jobs atrasados. Se o horário era 00:00 e a máquina
-estava hibernando, o job ainda roda se o processo acordar até 01:00. Depois
-disso, é descartado.
-
-### 2.5 O que o job faz
-
-`disparar_aniversariantes_icm()` e `disparar_aniversariantes_zoom()` delegam para
+O runner do GitHub Actions não tem o `.env`: as credenciais e os JIDs vêm dos
+**Secrets** do repositório. O workflow chama
+`python -m scripts.disparar_aniversariantes --fonte ambos`, que delega para
 `_disparar_do_dia()` (`core/comum.py`):
 
 1. o JID do grupo está configurado?
 2. a lista (PDF/CSV) tem dados?
 3. filtra `Data Nasc. == hoje (dd/mm)`;
 4. sem aniversariantes → grava no log e encerra sem enviar;
-5. com aniversariantes → monta o texto, chama `sendText`, grava o resultado em
-   `runtime/aniversariantes.log`.
+5. com aniversariantes → monta o texto, chama `sendText` pela instância fixa
+   `EVOLUTION_INSTANCE` e grava o resultado em `runtime/aniversariantes.log`.
 
-Os dois jobs são independentes: uma exceção no ICM é capturada e registrada, e o
-Zoom continua sendo processado.
+### 2.1 Horário e fuso
 
-### 2.6 Testar sem esperar a meia-noite
+O `cron` do GitHub Actions é sempre em **UTC** e não considera horário de verão
+(o Brasil não usa mais DST, então `10:00 UTC` = `07:00 BRT` o ano inteiro). O
+GitHub pode atrasar alguns minutos em horários de pico.
+
+### 2.2 Testar sem esperar as 07:00
 
 Não há botão “executar agora”. Duas opções:
 
@@ -277,8 +227,8 @@ crontab -e
 ```
 
 ```cron
-# todo dia às 00:00 (horário local do servidor; ajuste TZ se necessário)
-0 0 * * * cd /caminho/check-birthday && TZ=America/Sao_Paulo .venv/bin/python enviar_hoje.py >> runtime/cron.log 2>&1
+# todo dia às 07:00 (horário local do servidor; ajuste TZ se necessário)
+0 7 * * * cd /caminho/check-birthday && TZ=America/Sao_Paulo .venv/bin/python enviar_hoje.py >> runtime/cron.log 2>&1
 ```
 
 No macOS o `cron` funciona, mas `launchd` é o mecanismo nativo e lida melhor com
@@ -308,7 +258,7 @@ Crie `~/Library/LaunchAgents/tech.ideiasdev.checkbirthday.plist`:
 
   <key>StartCalendarInterval</key>
   <dict>
-    <key>Hour</key><integer>0</integer>
+    <key>Hour</key><integer>7</integer>
     <key>Minute</key><integer>0</integer>
   </dict>
 
@@ -332,7 +282,7 @@ launchctl load ~/Library/LaunchAgents/tech.ideiasdev.checkbirthday.plist
 launchctl start tech.ideiasdev.checkbirthday
 ```
 
-> Se a máquina estiver **dormindo** à meia-noite, o `launchd` executa ao
+> Se a máquina estiver **dormindo** às 07:00, o `launchd` executa ao
 > acordar. Ainda assim, confira o log.
 
 ### 4.4 GitHub Actions (nuvem)
@@ -345,7 +295,7 @@ use **Secrets** do repositório (nunca commite o `.env`):
 name: Aniversariantes
 on:
   schedule:
-    - cron: "0 3 * * *"   # 03:00 UTC = 00:00 em America/Sao_Paulo
+    - cron: "0 10 * * *"   # 10:00 UTC = 07:00 em America/Sao_Paulo
   workflow_dispatch:
 
 jobs:
@@ -370,7 +320,7 @@ jobs:
 
 Atenção: o `schedule` do GitHub Actions pode atrasar alguns minutos em horários
 de pico e **não** considera horário de verão (o Brasil não usa mais DST, então
-`03:00 UTC` = `00:00 BRT` o ano inteiro).
+`10:00 UTC` = `07:00 BRT` o ano inteiro).
 
 ### 4.5 VPS
 
@@ -392,10 +342,10 @@ ExecStart=/opt/check-birthday/.venv/bin/python enviar_hoje.py
 ```ini
 # /etc/systemd/system/check-birthday.timer
 [Unit]
-Description=Todo dia a meia-noite
+Description=Todo dia às 07:00
 
 [Timer]
-OnCalendar=*-*-* 00:00:00
+OnCalendar=*-*-* 07:00:00
 Persistent=true
 
 [Install]
@@ -415,7 +365,8 @@ horário.
 
 - `core/agendamentos.py` usa `FUSO = "America/Sao_Paulo"` no scheduler, nos
   `DateTrigger` e em `agora()`;
-- `main.py` registra o cron no mesmo scheduler → 00:00 de Brasília;
+- o disparo diário é agendado no GitHub Actions em UTC (`0 10 * * *` = 07:00 de
+  Brasília);
 - o **filtro da data** em `_disparar_do_dia()` usa `datetime.now()` do sistema.
   Se o servidor estiver em outro fuso, o “hoje” pode divergir do horário do job.
   Em VPS, configure `TZ=America/Sao_Paulo` (veja os exemplos acima).
@@ -426,7 +377,7 @@ horário.
 
 | Pergunta | Resposta |
 |---|---|
-| Que horas envia os aniversariantes? | todo dia às 00:00 de Brasília |
+| Que horas envia os aniversariantes? | todo dia às 07:00 de Brasília (GitHub Actions) |
 | Preciso abrir o navegador? | não; precisa do **processo** `streamlit run` vivo |
 | Se eu reiniciar o app, perco os agendamentos? | não; os pendentes são recarregados do JSON |
 | Se o app estava desligado no horário? | o agendamento vira `perdido` |

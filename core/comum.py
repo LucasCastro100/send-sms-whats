@@ -14,7 +14,12 @@ import pandas as pd
 from pypdf import PdfReader
 import pytz
 import requests
-import streamlit as st
+
+from core.evolution import (  # noqa: E402
+    EVOLUTION_BASE_URL,
+    EVOLUTION_INSTANCE,
+    chave_api,
+)
 
 RAIZ = Path(__file__).resolve().parent.parent
 PASTA_DADOS = RAIZ / "data"
@@ -22,10 +27,6 @@ PASTA_RUNTIME = RAIZ / "runtime"
 PASTA_RUNTIME.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(RAIZ / ".env")
-
-EVOLUTION_BASE_URL = os.getenv("EVOLUTION_BASE_URL", "https://evolution.ideiasdev.tech")
-EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "igreja-bot")
-EVOLUTION_APIKEY = os.getenv("EVOLUTION_APIKEY", "")
 
 JID_GRUPO_IGREJA_FIXO = os.getenv("JID_GRUPO_IGREJA_FIXO", "553498018995-1503451609@g.us")
 NOME_GRUPO_IGREJA_FIXO = os.getenv("NOME_GRUPO_IGREJA_FIXO", "ICM - IGREJA BOA VISTA")
@@ -123,18 +124,6 @@ def parse_csv(file_path: Path) -> pd.DataFrame:
     df["Número"] = range(1, len(df) + 1)
 
     return df
-
-
-@st.cache_data
-def read_and_parse_pdf(file_path: Path) -> pd.DataFrame:
-    """Versão com cache do PDF, usada apenas pela interface."""
-    return parse_pdf(file_path)
-
-
-@st.cache_data
-def read_and_parse_csv(file_path: Path) -> pd.DataFrame:
-    """Versão com cache do CSV, usada apenas pela interface."""
-    return parse_csv(file_path)
 
 
 # ---------------------------------------------------------------------------
@@ -303,13 +292,32 @@ def atualizar_exclusoes(
 # ---------------------------------------------------------------------------
 # Mensagem e envio
 # ---------------------------------------------------------------------------
-def enviar_via_evolution_api(texto: str, destinatario_jid: str) -> tuple[bool, str]:
-    """Envia mensagem de texto via Evolution API."""
-    url = f"{EVOLUTION_BASE_URL.rstrip('/')}/message/sendText/{EVOLUTION_INSTANCE}"
+def instancia_ativa() -> str:
+    """Instância usada pelos scripts (a mesma do .env)."""
+    return EVOLUTION_INSTANCE
+
+
+def enviar_via_evolution_api(
+    texto: str,
+    destinatario_jid: str,
+    instancia: str | None = None,
+) -> tuple[bool, str]:
+    """Envia mensagem de texto via Evolution API.
+
+    Sem `instancia`, usa a instância do usuário logado (ou a padrão).
+    """
+    instancia = instancia or instancia_ativa()
+    url = f"{EVOLUTION_BASE_URL.rstrip('/')}/message/sendText/{instancia}"
     headers = {
-        "apikey": EVOLUTION_APIKEY,
+        "apikey": chave_api(instancia),
         "Content-Type": "application/json",
     }
+
+    if not headers["apikey"]:
+        return False, (
+            f"Sem chave para a instância `{instancia}`. "
+            "Configure `EVOLUTION_GLOBAL_APIKEY` ou use a instância padrão."
+        )
 
     destino = (destinatario_jid or "").strip()
     if not destino.endswith("@g.us"):
@@ -472,7 +480,11 @@ def _disparar_do_dia(
         return True, aviso
 
     mensagem = montar_mensagem(df_hoje, hoje_str, fonte=origem.lower())
-    sucesso, retorno = enviar_via_evolution_api(mensagem, destino_jid)
+    # O disparo automático sempre usa a instância fixa do servidor/CI,
+    # independentemente de quem estiver logado no painel.
+    sucesso, retorno = enviar_via_evolution_api(
+        mensagem, destino_jid, instancia=EVOLUTION_INSTANCE
+    )
 
     nomes = ", ".join(df_hoje["Nome"].tolist())
     if excluidos:

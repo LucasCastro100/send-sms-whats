@@ -1,6 +1,6 @@
 """Disparo diário dos aniversariantes (ICM e Zoom) fora do Streamlit.
 
-É este script que o GitHub Actions executa às 00:00 de Brasília. Também pode
+É este script que o GitHub Actions executa às 07:00 de Brasília. Também pode
 ser rodado na mão, inclusive em modo de teste (sem enviar nada):
 
     python -m scripts.disparar_aniversariantes
@@ -22,9 +22,12 @@ load_dotenv(RAIZ / ".env")
 from core import comum  # noqa: E402
 
 
-def _modo_teste(texto: str, destinatario_jid: str) -> tuple[bool, str]:
+def _modo_teste(
+    texto: str, destinatario_jid: str, instancia: str | None = None
+) -> tuple[bool, str]:
     print(
         "--- DRY-RUN: mensagem NÃO enviada ---\n"
+        f"Instância: {instancia or '(padrão)'}\n"
         f"Destino: {destinatario_jid}\n"
         f"{texto}\n"
         "------------------------------------",

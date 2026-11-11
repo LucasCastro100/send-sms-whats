@@ -9,5 +9,11 @@ __pycache__/
 # Dados gerados em execução (logs, fila de agendamentos)
 runtime/
 
+# Imagens extraídas dos PDFs na importação (geradas de novo a cada uso)
+data/fotos/
+
+# Planilhas/PDFs recebidos do sistema da igreja (dados pessoais, não versionar)
+data/entrada/
+
 # O CSV do Zoom é dado do projeto (a regra *.csv do .gitignore raiz o ignoraria)
 !data/aniversariantes_zoom.csv

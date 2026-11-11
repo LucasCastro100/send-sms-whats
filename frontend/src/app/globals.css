@@ -1,0 +1,212 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-nunito, ui-sans-serif), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono: var(--font-nunito, ui-sans-serif), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-heading: var(--font-nunito, ui-sans-serif), ui-sans-serif, system-ui,
+    sans-serif;
+
+  /* Identidade da igreja: vermelho e branco */
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-foreground: var(--brand-foreground);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --brand: #c1121f;
+  --brand-strong: #8c0e18;
+  --brand-soft: #fdeef0;
+  --brand-foreground: #ffffff;
+
+  --background: #fcfbfb;
+  --foreground: #1b1315;
+  --card: #ffffff;
+  --card-foreground: #1b1315;
+  --popover: #ffffff;
+  --popover-foreground: #1b1315;
+  --primary: #c1121f;
+  --primary-foreground: #ffffff;
+  --secondary: #f6f1f1;
+  --secondary-foreground: #2a1d1f;
+  --muted: #f7f4f4;
+  --muted-foreground: #7c6d70;
+  --accent: #fdf1f2;
+  --accent-foreground: #9e0e19;
+  --destructive: #b42318;
+  --border: #ebe4e4;
+  --input: #e6dcdd;
+  --ring: #e2a6ac;
+  --chart-1: #c1121f;
+  --chart-2: #e4576a;
+  --chart-3: #8c0e18;
+  --chart-4: #f0a8b1;
+  --chart-5: #3b2a2d;
+  --radius: 0.75rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #2a1d1f;
+  --sidebar-primary: #c1121f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fdf1f2;
+  --sidebar-accent-foreground: #9e0e19;
+  --sidebar-border: #f0e9e9;
+  --sidebar-ring: #c1121f;
+}
+
+.dark {
+  --brand: #e23a4b;
+  --brand-strong: #f2737f;
+  --brand-soft: #2c1417;
+  --brand-foreground: #ffffff;
+
+  --background: #0f0a0b;
+  --foreground: #f7f1f2;
+  --card: #171012;
+  --card-foreground: #f7f1f2;
+  --popover: #1b1214;
+  --popover-foreground: #f7f1f2;
+  --primary: #e23a4b;
+  --primary-foreground: #ffffff;
+  --secondary: #251a1c;
+  --secondary-foreground: #f7f1f2;
+  --muted: #221719;
+  --muted-foreground: #a99598;
+  --accent: #2a1a1d;
+  --accent-foreground: #ffd9dd;
+  --destructive: #f07178;
+  --border: #2e2023;
+  --input: #38282b;
+  --ring: #b03040;
+  --chart-1: #e23a4b;
+  --chart-2: #f2737f;
+  --chart-3: #b3122b;
+  --chart-4: #ffb3bb;
+  --chart-5: #f7f1f2;
+  --sidebar: #130c0e;
+  --sidebar-foreground: #f0e6e8;
+  --sidebar-primary: #e23a4b;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a1a1d;
+  --sidebar-accent-foreground: #ffd9dd;
+  --sidebar-border: #2a1c1f;
+  --sidebar-ring: #e23a4b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading;
+    letter-spacing: -0.012em;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 22%, transparent);
+    color: var(--foreground);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    background-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+  }
+}
+
+/* Fundo quadriculado usado nos painéis vermelhos */
+@utility bg-grid-light {
+  background-image: linear-gradient(
+      to right,
+      rgb(255 255 255 / 0.09) 1px,
+      transparent 1px
+    ),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.09) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Textura sutil de pontos para o fundo do app */
+@utility bg-dots {
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--foreground) 9%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+@utility brand-gradient {
+  background-image: linear-gradient(
+    150deg,
+    #e02436 0%,
+    var(--brand) 42%,
+    var(--brand-strong) 100%
+  );
+}

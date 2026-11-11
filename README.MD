@@ -1,29 +1,70 @@
-# Check Birthday — Painel de Automação do WhatsApp
+# Check Birthday — painel de automação do WhatsApp
 
-Streamlit + Evolution API para disparar aniversariantes (ICM e Zoom), mensagens
-para grupos/contatos e envios agendados.
+Painel da igreja para aniversariantes, mensagens e presença, com envio pelo
+WhatsApp (Evolution API).
 
-- **Painel (Streamlit):** consulta das listas e disparo manual.
-- **Disparo automático diário (GitHub Actions):** todo dia às **00:00 de
-  Brasília** envia os aniversariantes do ICM e do Zoom, mesmo com o app do
-  Streamlit hibernando.
+- **API** — FastAPI + SQLite/SQLModel (`backend/`). Só API, sem telas.
+- **Painel** — Next.js 15 + Tailwind v4 + shadcn/ui (`frontend/`).
+- **Disparo diário** — thread do backend às 07:00 de Brasília, com base na
+  lista **ICM** do banco.
+
+O Streamlit antigo foi aposentado. Ficaram na raiz apenas `core/` e `scripts/`,
+usados pelo disparo manual de emergência do GitHub Actions.
 
 ---
 
-## 1. Rodar localmente
+## 1. Rodar local
+
+### API
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+cd backend
+python3.9 -m venv .venv            # só na primeira vez
+.venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-Crie o `.env` na raiz do projeto:
+O banco fica em `backend/data/app.db` e é criado no primeiro start. Os
+usuários iniciais vêm do `APP_USERS` do `.env` da raiz; sem ele, cria o admin
+`lucas` / `trocar123`.
+
+### Painel
+
+```bash
+cd frontend
+pnpm install                       # só na primeira vez
+echo "API_INTERNAL_URL=http://127.0.0.1:8000" > .env.local
+pnpm dev
+```
+
+Abra <http://localhost:3000>. O Next faz proxy de `/api/*` para o FastAPI,
+então não há CORS e o cookie de sessão funciona na mesma origem.
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+Sobe a API em `api:8000` e o painel em <http://localhost:3000>. O SQLite fica
+no volume `cb-data` (`/data/app.db`). Se a porta 3000 estiver ocupada:
+`WEB_PORT=3100 docker compose up --build`.
+
+## 2. Variáveis de ambiente
+
+Crie o `.env` na raiz (o mesmo arquivo alimenta API, painel e scripts):
 
 ```env
 EVOLUTION_BASE_URL=https://sua-evolution-api
 EVOLUTION_INSTANCE=igreja-bot
 EVOLUTION_APIKEY=sua-chave
+
+# Opcional: chave global (AUTHENTICATION_API_KEY) para criar instância por usuário
+EVOLUTION_GLOBAL_APIKEY=
+EVOLUTION_INSTANCE_PREFIX=cb-
+
+# Login inicial do painel (JSON). Sem isso, o admin é lucas / trocar123.
+APP_USERS={"lucas": {"senha": "troque-esta-senha", "nome": "Lucas", "instancia": "igreja-bot"}}
 
 JID_GRUPO_IGREJA_FIXO=000000000000000000@g.us
 NOME_GRUPO_IGREJA_FIXO=ICM - IGREJA BOA VISTA
@@ -32,131 +73,49 @@ JID_GRUPO_ZOOM=000000000000000000@g.us
 NOME_GRUPO_ZOOM=ZOOM MG VALE PEDAGOGICO
 ```
 
-Rodar o painel:
+Cada usuário pode ter a própria instância (`cb-<usuario>`) ou usar uma
+existente (ex.: `"instancia": "igreja-bot"`). Sem
+`EVOLUTION_GLOBAL_APIKEY` a API só reconecta a instância padrão; com ela, o
+admin cria a conta e cada usuário conecta o próprio WhatsApp pelo QR Code.
 
-```bash
-streamlit run main.py
-```
+## 3. Disparo automático
 
-Testar o disparo **sem enviar nada** (imprime a mensagem no terminal):
+O backend envia os aniversariantes do dia sozinho, todos os dias às **07:00 de
+Brasília** (thread `services/disparo_automatico.py`), lendo a tabela `icm` —
+com gêneros e exclusões ajustados no painel. A idempotência fica na tabela
+`disparos`: cada dia/fonte é enviado uma única vez.
+
+O workflow `.github/workflows/disparo-diario.yml` é **somente manual**
+(`workflow_dispatch`) e serve como plano B:
 
 ```bash
 python -m scripts.disparar_aniversariantes --dry-run
-python -m scripts.disparar_aniversariantes --dry-run --data 30/10
-```
-
-Disparar de verdade pela linha de comando:
-
-```bash
-python -m scripts.disparar_aniversariantes            # ICM + Zoom
 python -m scripts.disparar_aniversariantes --fonte icm
 ```
 
-### Quem não deve ser citado
-
-Nas páginas **Aniversariantes ICM** e **Zoom**, no fim da tela, há a tabela
-**🚫 Quem NÃO deve ser citado nas mensagens**. Marque a pessoa na coluna
-**Não citar** e clique em **Salvar**: ela deixa de aparecer no texto do botão
-**Disparar** e também no disparo automático das 00:00.
-
-As marcações ficam em `data/exclusoes.json` (por fonte: `icm` e `zoom`):
-
-```json
-{
-  "icm": ["NOME DA PESSOA"],
-  "zoom": []
-}
-```
-
-> Como o envio é para o **grupo**, isso controla quem é **citado** na mensagem —
-> o texto continua chegando para todos os participantes.
-
-> ⚠️ O GitHub Actions lê o `data/exclusoes.json` **do repositório**. Para valer
-> no disparo automático, faça commit do arquivo depois de salvar
-> (`git add data/exclusoes.json && git commit -m "Atualiza exclusões"`).
-
----
-
-## 2. Deploy no Streamlit Cloud
-
-1. Suba o projeto no GitHub.
-2. Em <https://share.streamlit.io>, clique em **New app** e escolha o repositório,
-   branch `main` e **Main file path**: `main.py`.
-3. Em **Settings → Secrets**, cole as mesmas variáveis do `.env`:
-
-```toml
-EVOLUTION_BASE_URL = "https://sua-evolution-api"
-EVOLUTION_INSTANCE = "igreja-bot"
-EVOLUTION_APIKEY = "sua-chave"
-JID_GRUPO_IGREJA_FIXO = "000000000000000000@g.us"
-NOME_GRUPO_IGREJA_FIXO = "ICM - IGREJA BOA VISTA"
-JID_GRUPO_ZOOM = "000000000000000000@g.us"
-NOME_GRUPO_ZOOM = "ZOOM MG VALE PEDAGOGICO"
-```
-
-> O `data.pdf` e o `data/aniversariantes_zoom.csv` precisam estar no repositório,
-> pois o app na nuvem não enxerga arquivos locais.
-
----
-
-## 3. Disparo automático às 00:00 (GitHub Actions)
-
-O workflow `.github/workflows/disparo-diario.yml` roda:
-
-```yaml
-schedule:
-  - cron: "0 3 * * *"   # 03:00 UTC = 00:00 em America/Sao_Paulo
-```
-
-### Configurar os Secrets no GitHub
-
-Em **Settings → Secrets and variables → Actions → New repository secret**,
-cadastre:
-
-| Secret | Exemplo |
-|---|---|
-| `EVOLUTION_BASE_URL` | `https://sua-evolution-api` |
-| `EVOLUTION_INSTANCE` | `igreja-bot` |
-| `EVOLUTION_APIKEY` | `sua-chave` |
-| `JID_GRUPO_IGREJA_FIXO` | `...@g.us` |
-| `NOME_GRUPO_IGREJA_FIXO` | `ICM - IGREJA BOA VISTA` |
-| `JID_GRUPO_ZOOM` | `...@g.us` |
-| `NOME_GRUPO_ZOOM` | `ZOOM MG VALE PEDAGOGICO` |
-
-### Testar sem esperar a meia-noite
-
-Aba **Actions → Disparo diário de aniversariantes → Run workflow**:
-
-- `fonte`: `ambos`, `icm` ou `zoom`
-- `dry_run`: marque para apenas montar a mensagem (não envia)
-
-O resultado de cada execução fica no log do job.
-
-> Observação: o cron do GitHub Actions pode atrasar alguns minutos em horários
-> de pico. Para o disparo sair pontualmente às 00:00, a alternativa é rodar
-> `python -m scripts.disparar_aniversariantes` num cron do próprio servidor
-> (`0 0 * * *` com `TZ=America/Sao_Paulo`).
-
----
+> Não agende o workflow no GitHub enquanto o backend estiver no ar, ou a
+> mensagem sai duas vezes.
 
 ## 4. Estrutura
 
 ```
-main.py                     painel inicial + agendador interno (reforço)
-core/comum.py               leitura das listas, mensagens e envio (Evolution API)
-core/agendamentos.py        envios avulsos agendados pela tela Mensagens
-pages/aniversariantes_icm.py
-pages/aniversariantes_zoom.py
-pages/mensagens.py
-scripts/disparar_aniversariantes.py   disparo via linha de comando / CI
-data/data.pdf               lista do ICM
-data/aniversariantes_zoom.csv
-data/generos.json           gênero por nome (irmão/irmã)
-data/exclusoes.json         quem NÃO deve ser citado (por fonte: icm/zoom)
-runtime/                    logs e fila de agendamentos (não versionado)
+backend/        API FastAPI (rotas, serviços, SQLite em backend/data/)
+frontend/       Painel Next.js (src/app, src/components, src/lib)
+core/           Regras antigas reaproveitadas pelo script de disparo manual
+scripts/        Disparo manual de aniversariantes
+data/           Arquivos de entrada/legado (PDF do ICM, CSVs, exclusões)
+docs/           Documentação e imagens
+docker-compose.yml
 ```
 
-## 5. Documentação
+## 5. Telas
 
-O funcionamento completo de cada página e módulo está em
-[`docs/`](docs/).
+Painel, Aniversariantes, Mensagens (com agendamento), Presença, Conexão
+WhatsApp, Importar planilhas e Usuários (admin).
+
+Não há cadastro público: o admin cria as contas e define a função de cada
+usuário — `admin` (tudo), `lider` (só o grupo de assistência vinculado) ou
+`frente` (Grupo de Senhoras: todas as mulheres).
+
+Detalhes das rotas da API, funções, grupos, cache de grupos/contatos e
+importação estão em [`README-web.md`](README-web.md).
