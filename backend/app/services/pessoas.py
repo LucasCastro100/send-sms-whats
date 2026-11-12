@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..models import MODELOS_PESSOA, PessoaBase, User
 
 FONTES = ("icm", "zoom")
+
+ARQUIVO_GENEROS = "generos.json"
+ARQUIVO_EXCLUSOES = "exclusoes.json"
 
 
 def fontes_do_usuario(user: User) -> tuple[str, ...]:
@@ -168,3 +174,72 @@ def aplicar_mudancas(pessoa: PessoaBase, mudancas: dict) -> None:
         if valor in (None, ""):
             continue
         setattr(pessoa, campo, valor)
+
+
+# ---------------------------------------------------------------------------
+# Espelho em `data/*.json` para o disparo do GitHub Actions
+# ---------------------------------------------------------------------------
+# O workflow do GitHub não tem acesso ao banco: ele lê `data/generos.json` e
+# `data/exclusoes.json` do repositório. Sem este espelho, marcar "Não enviar
+# SMS" ou trocar o gênero no painel não mudaria a mensagem enviada pelo Git.
+def _ler_json(nome: str, padrao: dict) -> dict:
+    caminho = Path(settings.data_dir) / nome
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return padrao
+    return dados if isinstance(dados, dict) else padrao
+
+
+def _gravar_json(nome: str, dados: dict) -> None:
+    caminho = Path(settings.data_dir) / nome
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def sincronizar_exclusao(nome_chave: str, fonte: str, excluido: bool) -> None:
+    """Mantém `exclusoes.json` igual à marcação do painel."""
+    fonte = (fonte or "").lower()
+    if fonte not in FONTES:
+        return
+
+    dados = _ler_json(ARQUIVO_EXCLUSOES, {"icm": [], "zoom": []})
+    nomes = {
+        normalizar_nome(nome)
+        for nome in dados.get(fonte, [])
+        if str(nome).strip()
+    }
+    chave = normalizar_nome(nome_chave)
+    if excluido:
+        nomes.add(chave)
+    else:
+        nomes.discard(chave)
+
+    dados[fonte] = sorted(nomes)
+    _gravar_json(ARQUIVO_EXCLUSOES, dados)
+
+
+def sincronizar_genero(
+    nome_chave: str, fonte: str, genero: Optional[str]
+) -> None:
+    """Mantém `generos.json` igual ao gênero salvo no painel."""
+    fonte = (fonte or "").lower()
+    if fonte not in FONTES:
+        return
+
+    dados = _ler_json(ARQUIVO_GENEROS, {"icm": {}, "zoom": {}})
+    mapa = dados.get(fonte)
+    if not isinstance(mapa, dict):
+        mapa = {}
+
+    chave = normalizar_nome(nome_chave)
+    if genero in ("M", "F"):
+        mapa[chave] = genero
+    else:
+        mapa.pop(chave, None)
+
+    dados[fonte] = dict(sorted(mapa.items()))
+    _gravar_json(ARQUIVO_GENEROS, dados)

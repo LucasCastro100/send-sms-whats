@@ -234,3 +234,29 @@ faltas e observações, fica na página `/membros/{id}`.
 roda em segundo plano (`backend/app/services/cache.py`) e o resultado fica
 em `backend/data/cache/*.json`. A tela consulta o progresso e mostra o
 último resultado salvo.
+
+## Disparo diário dos aniversariantes
+
+Quem envia é o **GitHub Actions** (`.github/workflows/disparo-diario.yml`,
+`cron: "0 3 * * *"` = 00:00 de Brasília; o GitHub às vezes atrasa e o job cai
+de manhã). O job não enxerga o banco: ele lê os arquivos versionados em
+`data/` — `data.pdf`, `aniversariantes_zoom.csv`, `generos.json` e
+`exclusoes.json`.
+
+- O painel espelha nesses JSON o **gênero** e a marcação **Não enviar SMS**
+  salvos na ficha da vida. Como o workflow lê o repositório, depois de ajustar
+  algo no painel rode:
+
+  ```bash
+  scripts/publicar_dados.sh
+  ```
+
+  Ele publica só `data/generos.json` e `data/exclusoes.json` pelo `gh` (sem
+  mexer no resto do repositório) e avisa quando não há nada novo.
+- A thread do backend (`services/disparo_automatico.py`) faz o mesmo envio às
+  07:00 lendo o banco. Com o `.env` padrão (`DISPARO_AUTOMATICO=false`) ela
+  fica desligada para não mandar a mensagem duas vezes; ligue só se o painel
+  for o único responsável pelo envio.
+- Disparo manual de emergência: **Actions** → *Disparo diário de
+  aniversariantes* → *Run workflow* (`dry_run` monta a mensagem sem enviar).
+

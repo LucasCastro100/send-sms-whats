@@ -231,6 +231,18 @@ def editar(
     session.add(pessoa)
     session.commit()
     session.refresh(pessoa)
+
+    # O disparo do GitHub Actions lê os JSON de `data/`, não o banco: mantém o
+    # espelho igual ao painel para a mensagem sair com os ajustes daqui.
+    if dados.excluido is not None:
+        servico_pessoas.sincronizar_exclusao(
+            pessoa.nome_chave, pessoa.fonte, bool(pessoa.excluido)
+        )
+    if dados.genero is not None:
+        servico_pessoas.sincronizar_genero(
+            pessoa.nome_chave, pessoa.fonte, pessoa.genero
+        )
+
     return saida(pessoa, servico_igrejas.mapa(session))
 
 
