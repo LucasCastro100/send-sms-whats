@@ -1,0 +1,84 @@
+# Produção: API na VPS (Postgres + Caddy com HTTPS) e front na Vercel.
+#
+# Uso, dentro de `deploy/`:
+#
+#   cp .env.prod.example .env
+#   $EDITOR .env                     # domínio, senhas, APP_USERS, Evolution...
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# O Caddy pega o certificado sozinho quando API_DOMAIN aponta para esta VPS.
+# A porta 8000 não é publicada: só o Caddy fala com a API.
+
+name: check-birthday
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-checkbirthday}
+      POSTGRES_USER: ${POSTGRES_USER:-checkbirthday}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - cb-pg:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-checkbirthday}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-checkbirthday}
+      # `data/` só é lido (data.pdf, CSV, JSON da migração). Quem escreve no
+      # banco é o Postgres; uploads ficam no volume.
+      DATA_DIR: /dados
+      UPLOADS_DIR: /uploads
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: none
+      CORS_ORIGINS: ${CORS_ORIGINS:?defina CORS_ORIGINS no .env}
+    volumes:
+      - ../data:/dados:ro
+      - cb-uploads:/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/api/health")
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?defina API_DOMAIN no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  cb-pg:
+  cb-uploads:
+  caddy-data:
+  caddy-config:

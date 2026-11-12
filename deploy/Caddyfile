@@ -1,0 +1,6 @@
+# HTTPS automático (Let's Encrypt) para a API.
+# O domínio vem do API_DOMAIN no .env; a API roda no serviço `api` na 8000.
+{$API_DOMAIN} {
+	encode gzip
+	reverse_proxy api:8000
+}

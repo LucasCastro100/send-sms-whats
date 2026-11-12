@@ -192,12 +192,18 @@ def _ler_json(nome: str, padrao: dict) -> dict:
 
 
 def _gravar_json(nome: str, dados: dict) -> None:
+    """Grava o espelho. Se a pasta for somente leitura (VPS), não quebra o painel."""
     caminho = Path(settings.data_dir) / nome
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    caminho.write_text(
-        json.dumps(dados, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    try:
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        caminho.write_text(
+            json.dumps(dados, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        # No servidor o `data/` pode estar montado como somente leitura; quem
+        # envia lá é a própria API (lê o banco), então o espelho é opcional.
+        pass
 
 
 def sincronizar_exclusao(nome_chave: str, fonte: str, excluido: bool) -> None:

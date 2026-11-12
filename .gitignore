@@ -17,3 +17,6 @@ data/entrada/
 
 # O CSV do Zoom é dado do projeto (a regra *.csv do .gitignore raiz o ignoraria)
 !data/aniversariantes_zoom.csv
+
+# O exemplo de produção vai versionado: não tem segredo, só placeholders.
+!deploy/.env.prod.example

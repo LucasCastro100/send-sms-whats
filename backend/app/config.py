@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     token_horas: int = 24 * 7
     cookie_name: str = "cb_session"
     cookie_secure: bool = False
+    # `lax` funciona quando o painel e a API estão na mesma origem (proxy do
+    # Next). Com o front em outro domínio (Vercel), use `none` + `secure=true`.
+    cookie_samesite: str = "lax"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     evolution_base_url: str = "https://evolution.ideiasdev.tech"

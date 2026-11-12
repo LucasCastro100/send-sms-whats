@@ -8,6 +8,10 @@ export class ApiError extends Error {
   }
 }
 
+// Em dev fica vazio: o Next faz proxy de /api para o FastAPI (mesma origem).
+// Na Vercel, aponte para a API pública, ex.: https://api.seudominio.com
+const BASE_API = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
@@ -21,7 +25,7 @@ export async function apiFetch<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const resposta = await fetch(path, {
+  const resposta = await fetch(`${BASE_API}${path}`, {
     ...init,
     headers,
     credentials: "include",

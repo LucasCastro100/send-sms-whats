@@ -50,11 +50,14 @@ def _saida(user: User, session: Session) -> UsuarioOut:
 
 
 def _logar(response: Response, user: User) -> None:
+    samesite = settings.cookie_samesite.strip().lower()
+    if samesite not in ("lax", "strict", "none"):
+        samesite = "lax"
     response.set_cookie(
         key=settings.cookie_name,
         value=criar_token(user.usuario),
         httponly=True,
-        samesite="lax",
+        samesite=samesite,  # type: ignore[arg-type]
         secure=settings.cookie_secure,
         max_age=settings.token_horas * 3600,
         path="/",

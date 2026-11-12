@@ -1,4 +1,11 @@
-"""Banco de dados (SQLite por padrão) e sessão por requisição."""
+"""Banco de dados (SQLite por padrão) e sessão por requisição.
+
+Em produção na VPS use Postgres, por exemplo:
+
+    DATABASE_URL=postgresql+psycopg://usuario:senha@db:5432/checkbirthday
+
+O SQLite continua valendo para rodar local e para os testes.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +27,13 @@ connect_args = (
     else {}
 )
 
-engine = create_engine(settings.database_url, connect_args=connect_args, echo=False)
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    echo=False,
+    # Postgres derruba conexões ociosas; o pool confere antes de usar.
+    pool_pre_ping=not settings.database_url.startswith("sqlite"),
+)
 
 if settings.database_url.startswith("sqlite"):
 

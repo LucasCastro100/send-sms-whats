@@ -12,6 +12,9 @@ Telas: Painel, Aniversariantes, Membros, Mensagens, Presença, Relatórios,
 Motivos de oração, Conexão WhatsApp, Grupos (admin), Importar planilhas
 (admin), Igrejas (admin) e Usuários (admin).
 
+Para publicar em produção (API na VPS com Postgres e painel na Vercel), veja
+[`docs/05-DEPLOY-VPS-VERCEL.md`](docs/05-DEPLOY-VPS-VERCEL.md).
+
 ## Rodar local (sem Docker)
 
 ### 1. API
