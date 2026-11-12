@@ -2,8 +2,9 @@
 
 Este documento explica os **dois tipos de agendamento** do sistema:
 
-1. **Disparo diário (GitHub Actions)** — todo dia às **07:00** (Brasília) envia
-   os aniversariantes do ICM e do Zoom;
+1. **Disparo diário (GitHub Actions)** — agendado para **00:00** (Brasília) e
+   enviado de manhã na prática (o GitHub atrasa); manda os aniversariantes do
+   ICM e do Zoom;
 2. **Envio avulso agendado** — uma mensagem única para uma data/hora escolhida
    na tela **💬 Mensagens → ⏰ Agendar**.
 
@@ -57,44 +58,32 @@ obter_agendador()  (singleton)
 
 ## 2. Job diário dos aniversariantes (GitHub Actions)
 
-O disparo diário **não** fica no agendador do Streamlit. Quem executa é o
+O disparo diário **não** fica no agendador do painel. Quem executa é o
 workflow `.github/workflows/disparo-diario.yml`, no horário do `cron`:
 
 ```yaml
 on:
   schedule:
-    - cron: "0 10 * * *"   # 10:00 UTC = 07:00 em America/Sao_Paulo
+    - cron: "0 3 * * *"   # 00:00 em America/Sao_Paulo
 ```
 
 O runner do GitHub Actions não tem o `.env`: as credenciais e os JIDs vêm dos
 **Secrets** do repositório. O workflow chama
-`python -m scripts.disparar_aniversariantes --fonte ambos`, que delega para
-`_disparar_do_dia()` (`core/comum.py`):
-
-1. o JID do grupo está configurado?
-2. a lista (PDF/CSV) tem dados?
-3. filtra `Data Nasc. == hoje (dd/mm)`;
-4. sem aniversariantes → grava no log e encerra sem enviar;
-5. com aniversariantes → monta o texto, chama `sendText` pela instância fixa
-   `EVOLUTION_INSTANCE` e grava o resultado em `runtime/aniversariantes.log`.
+`python -m scripts.disparar_aniversariantes --fonte ambos`, que lê
+`data/data.pdf`, `data/aniversariantes_zoom.csv`, `data/generos.json` e
+`data/exclusoes.json` — **não** o banco do painel.
 
 ### 2.1 Horário e fuso
 
 O `cron` do GitHub Actions é sempre em **UTC** e não considera horário de verão
-(o Brasil não usa mais DST, então `10:00 UTC` = `07:00 BRT` o ano inteiro). O
-GitHub pode atrasar alguns minutos em horários de pico.
+(o Brasil não usa mais DST, então `03:00 UTC` = `00:00 BRT` o ano inteiro). Na
+prática o GitHub atrasa e as execuções recentes caíram entre 06:30 e 07:30.
 
-### 2.2 Testar sem esperar as 07:00
+### 2.2 Como testar e como publicar os dados do painel
 
-Não há botão “executar agora”. Duas opções:
-
-```bash
-# roda os dois disparos na hora, fora do Streamlit
-.venv/bin/python -c "from core.comum import disparar_aniversariantes_icm, disparar_aniversariantes_zoom; print(disparar_aniversariantes_icm()); print(disparar_aniversariantes_zoom())"
-```
-
-ou use os botões **🚀 Disparar** das páginas **Aniversariantes ICM/Zoom** (enviam
-o texto da data selecionada, não necessariamente hoje).
+O passo a passo (publicar gênero/exclusões, rodar em `dry_run`, trocar o
+`data.pdf` e evitar envio duplicado) está em
+[`04-DISPARO-PELO-GIT.md`](04-DISPARO-PELO-GIT.md).
 
 ---
 

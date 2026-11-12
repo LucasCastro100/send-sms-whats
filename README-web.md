@@ -260,3 +260,6 @@ de manhã). O job não enxerga o banco: ele lê os arquivos versionados em
 - Disparo manual de emergência: **Actions** → *Disparo diário de
   aniversariantes* → *Run workflow* (`dry_run` monta a mensagem sem enviar).
 
+Passo a passo completo em
+[`docs/04-DISPARO-PELO-GIT.md`](docs/04-DISPARO-PELO-GIT.md).
+
